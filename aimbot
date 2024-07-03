@@ -1,0 +1,212 @@
+getgenv().AimlockSettings = {
+    Enabled = true,
+    Keybind = 'MouseButton2',
+    Hitboxes = {'Head',"HumanoidRootPart"},
+    
+    Flick = false, 
+    FlickPercentage = 1, -- going + = more going - = less
+    FlickDistance = 0.5,
+
+    VisibleCheck = false, 
+    HealthCheck = false,
+    KnockedCheck = false,
+
+    Formulation = 0.43, -- sensitivity, making this 1+ will break for evident reasons
+    Prediction = 0.120, 
+    Smoothing = 5, 
+
+    fovVisibility = true,
+    fovRadius = 100,
+    fovColor = Color3.fromRGB(255,255,255),
+    outlineColor = Color3.fromRGB(0,0,0),
+
+    ClosestPart = false,
+    RandomPart = false
+}
+local StartTick = tick()
+
+
+--// Variables
+local AimbotClient = {}
+
+
+
+
+local RunService = game:GetService('RunService')
+local UserInputService = game:GetService('UserInputService')
+local players = game:GetService('Players')
+
+local LocalPlayer = game.Players.LocalPlayer
+local CurrentCamera = workspace.CurrentCamera
+
+
+local FovCircles = {
+    Drawing.new('Circle'),
+    Drawing.new('Circle')
+}
+
+
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then 
+        FovCircles[1].Position = UserInputService:GetMouseLocation()
+        FovCircles[2].Position = UserInputService:GetMouseLocation()
+    end
+end)
+
+
+FovCircles[1].ZIndex = 2
+FovCircles[1].Thickness = 1
+
+FovCircles[2].ZIndex = 1
+FovCircles[2].Thickness = 4
+
+
+--// functions
+do
+    function GetClosestBodyPart(player)
+        local current_target = nil
+        local maximum_distance = math.huge
+
+        for i,v in pairs(player:GetChildren()) do
+            if v:IsA("MeshPart") or v:IsA("Part") then
+                local position, on_screen = game.Workspace.CurrentCamera:WorldToViewportPoint(v.Position)
+                if not on_screen then continue end
+                local distance = (Vector2.new(position.X, position.Y - game.GuiService:GetGuiInset(game.GuiService).Y) - Vector2.new(game.Players.LocalPlayer:GetMouse().X, game.Players.LocalPlayer:GetMouse().Y)).Magnitude
+                if distance > maximum_distance then continue end
+                current_target = v
+                maximum_distance = distance
+            end
+        end
+
+        return current_target
+    end
+
+    function Notify(title, text, time) 
+        game.StarterGui:SetCore('SendNotification', {
+            Title = title;
+            Text = text;
+            Duration = time;
+        })
+    end
+
+    function IsVisible(position, model)
+        local ray = Ray.new(CurrentCamera.CFrame.p, CFrame.new(CurrentCamera.CFrame.p, position).LookVector * 10000)
+        local hit, position, normal = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, CurrentCamera})
+        if not hit then
+            return false
+        end
+
+        return hit:IsDescendantOf(model), hit, position, normal
+    end
+
+    function TargetAffiliate(player)
+        if not player == LocalPlayer then
+            return false
+        end
+
+        if not player.Character or not player.Character:FindFirstChildWhichIsA('Humanoid') or not player.Character:FindFirstChild('HumanoidRootPart') then
+            return false
+        end
+    
+        if AimlockSettings.VisibleCheck and not IsVisible(player.Character.HumanoidRootPart.Position, player.Character) then
+            return false
+        end
+    
+        if AimlockSettings.HealthCheck and player.Character:FindFirstChildWhichIsA('Humanoid').Health <= 0 then 
+            return false
+        end
+
+            if (player.Character:FindFirstChild('BodyEffects') and player.Character.BodyEffects:FindFirstChild('K.O') and player.Character.BodyEffects['K.O'].Value) or player.Character:FindFirstChild('GRABBING_CONSTRAIT') then
+                return false
+            end
+        
+        --[[if AimlockSettings.TeamCheck and player.Team ~= LocalPlayer.Team then 
+            return false
+        end]] 
+
+        return true
+    end
+
+    function includes(tbl, key)
+        return ({pcall(function() local a = tbl[key] end)})[1]
+    end
+
+    function FovSet(property, value)
+        FovCircles[1][property] = value
+
+    end
+        function FovSet2(property, value)
+        FovCircles[2][property] = value
+        
+    end
+end
+
+FovSet2('Filled', false)
+FovSet2('Transparency', 1)
+
+do --// Loops
+    RunService.RenderStepped:Connect(function()
+        if getgenv().AimlockSettings.RandomPart == true then
+            AimbotClient.FinalPart = getgenv().AimlockSettings.Hitboxes[math.random(#getgenv().AimlockSettings.Hitboxes)]
+        end
+    end)
+
+    RunService.PostSimulation:Connect(function(DeltaTime)
+
+        FovSet('Radius', AimlockSettings.fovRadius)
+        FovSet2('Radius', AimlockSettings.fovRadius)
+        FovSet('Visible', AimlockSettings.fovVisibility)
+                FovSet2('Visible', AimlockSettings.fovVisibility)
+        FovSet('Color', AimlockSettings.fovColor)
+                FovSet2('Color', AimlockSettings.outlineColor)
+        local MousePosition = UserInputService:GetMouseLocation()
+        AimbotClient.TargetDistance = math.huge
+        
+        if (AimbotClient.Target ~= nil and not TargetAffiliate(AimbotClient.Target)) then
+            AimbotClient.Target = nil
+        end
+
+        if AimlockSettings.Enabled and LocalPlayer.Character then 
+            for i, player in next, players:GetChildren() do
+                
+                if not TargetAffiliate(player) then
+                    continue
+                end
+
+                local ScreenPosition, ScreenVisibility = CurrentCamera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+                local MouseDistance = (Vector2.new(ScreenPosition.X, ScreenPosition.Y) - MousePosition).magnitude
+
+                if AimbotClient.TargetDistance > MouseDistance and FovCircles[1].Radius >= MouseDistance and ScreenVisibility and not AimbotClient.InitialLock then
+                    AimbotClient.TargetDistance = MouseDistance
+                    AimbotClient.Target = player
+                end
+            end
+
+            if AimbotClient.Target ~= nil then 
+                local DesignatedPart
+                if getgenv().AimlockSettings.RandomPart == false then
+                    DesignatedPart = getgenv().AimlockSettings.ClosestPart and GetClosestBodyPart(AimbotClient.Target.Character) or AimbotClient.Target.Character:FindFirstChild(AimlockSettings.Hitboxes[1])
+                else
+                    DesignatedPart = getgenv().AimlockSettings.RandomPart and AimbotClient.Target.Character:FindFirstChild(AimbotClient.FinalPart) or AimbotClient.Target.Character:FindFirstChild(AimlockSettings.Hitboxes[1])
+                end
+
+                --// getgenv().AimlockSettings.RandomPart and AimbotClient.Target.Character:FindFirstChild(getgenv().AimlockSettings.Hitboxes[math.random(#getgenv().AimlockSettings.Hitboxes)])
+
+                if ((includes(Enum.KeyCode, AimlockSettings.Keybind) and UserInputService:IsKeyDown(AimlockSettings.Keybind)) or (includes(Enum.UserInputType, AimlockSettings.Keybind) and UserInputService:IsMouseButtonPressed(AimlockSettings.Keybind))) and not UserInputService:GetFocusedTextBox() and DesignatedPart then
+                    local TargetPartPosition = CurrentCamera:WorldToViewportPoint(DesignatedPart.Position + (AimbotClient.Target.Character.HumanoidRootPart.Velocity * AimlockSettings.Prediction))
+                    local RelativeMousePosition = Vector2.new(TargetPartPosition.X, TargetPartPosition.Y) - MousePosition
+                    local sensitivity = AimlockSettings.Formulation
+                    RelativeMousePosition = RelativeMousePosition / AimlockSettings.Smoothing
+
+                    if AimlockSettings.Flick then 
+                        if (AimbotClient.TargetDistance / AimlockSettings.fovRadius) >= AimlockSettings.FlickDistance then 
+                            sensitivity = sensitivity + AimlockSettings.FlickPercentage
+                        end
+                    end
+
+                    mousemoverel(RelativeMousePosition.X * sensitivity, RelativeMousePosition.Y * sensitivity)
+                end
+            end
+        end
+    end)
+end
